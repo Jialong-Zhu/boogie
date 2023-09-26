@@ -43,8 +43,20 @@ namespace SemSim
         Debugger.Launch();
       }
 
-      using StreamReader qr = new StreamReader(args[0]), tr = new StreamReader(args[1]);
-      float sim = RunMatch(qr.ReadToEnd(), tr.ReadToEnd());
+      string qtext, ttext;
+      if (File.Exists(args[0]) && File.Exists(args[1]))
+      {
+        using StreamReader qr = new StreamReader(args[0]), tr = new StreamReader(args[1]);
+        qtext = qr.ReadToEnd();
+        ttext = tr.ReadToEnd();
+      }
+      else
+      {
+        qtext = args[0];
+        ttext = args[1];
+      }
+
+      float sim = RunMatch(qtext, ttext);
       Console.Out.WriteLine($"Sim: {sim}");
 
       return 0;
