@@ -76,6 +76,14 @@ namespace SemSim
 
     private float Run(string queryText, string targetText)
     {
+      // Ad-hoc: rename $M.0 in target program to correctly check memory
+      bool memMap = queryText.Contains("$M.0") && targetText.Contains("$M.0");
+      if (memMap) 
+      {
+        Debug.WriteLine("Memory map enabled.");
+        targetText = targetText.Replace("$M.0", "_target.$M.0");
+      }
+
       Program queryProgram, targetProgram;
       if (!Utils.ParseProgram(queryText, out queryProgram) || !Utils.ParseProgram(targetText, out targetProgram))
       {
@@ -88,19 +96,18 @@ namespace SemSim
         return ErrorSim;
       }
 
+      Program joinedProgram = JoinTopLevelDeclarations(queryProgram, targetProgram);
 
-      JoinTopLevelDeclarations(queryProgram, targetProgram);
-
-      var queryImplementation = queryProgram.Implementations.Single();
+      var joinedImplementation = joinedProgram.Implementations.Single();
       var targetImplementation = targetProgram.Implementations.Single();
 
-      int numTotalLocals = queryImplementation.LocVars.Count + targetImplementation.LocVars.Count;
-
       targetImplementation = _renamer.VisitImplementation(targetImplementation);
+      
+      int numTotalLocals = joinedImplementation.LocVars.Count + targetImplementation.LocVars.Count;
 
       int numAssert;
       var assumeVars = new List<Tuple<Variable, Expr, Expr>>();
-      var blocks = CreateAssertsBlocks(queryImplementation, targetImplementation, assumeVars, out numAssert);
+      var blocks = CreateAssertsBlocks(joinedImplementation, targetImplementation, assumeVars, out numAssert);
 
       if (numAssert > Utils.MaxAsserts)
       {
@@ -108,27 +115,36 @@ namespace SemSim
         return ErrorSim;
       }
 
-      JoinImplementations(queryImplementation, targetImplementation);
+      JoinImplementations(joinedImplementation, targetImplementation);
 
-      queryImplementation.Blocks.Last().TransferCmd = new GotoCmd(Token.NoToken, blocks);
-      queryImplementation.Blocks.AddRange(blocks);
+      if (memMap) 
+      {
+        joinedImplementation.Blocks.First().Cmds.Insert(0, new AssumeCmd(Token.NoToken, Expr.Eq(
+          Expr.Ident(joinedProgram.GlobalVariables.Find(v => v.ToString() == "$M.0")), 
+          Expr.Ident(joinedProgram.GlobalVariables.Find(v => v.ToString() == "_target.$M.0"))
+        )));
+      }
+      joinedImplementation.Blocks.Last().TransferCmd = new GotoCmd(Token.NoToken, blocks);
+      joinedImplementation.Blocks.AddRange(blocks);
 
       // print new program and reparse to fix resolving problems
-      string joinedText = Utils.PrintProgram(queryProgram);
-      if (!Utils.ParseProgram(joinedText, out queryProgram))
+      string joinedText = Utils.PrintProgram(joinedProgram);
+      Debug.WriteLine(joinedText);
+      if (!Utils.ParseProgram(joinedText, out joinedProgram))
       {
         return ErrorSim;
       }
 
       // run Boogie and get the output
-      var output = Utils.RunBoogie(queryProgram);
+      var output = Utils.RunBoogie(joinedProgram);
+      Debug.WriteLine(output);
       if (output == null)
       {
         return ErrorSim;
       }
 
       // reparse queryProgram from joinedText to avoid side effects from RunBoogie
-      if (!Utils.ParseProgram(joinedText, out queryProgram))
+      if (!Utils.ParseProgram(joinedText, out joinedProgram))
       {
         return ErrorSim;
       }
@@ -144,7 +160,7 @@ namespace SemSim
 
       // map blocks to true asserts
       var trueAsserts = new Dictionary<Block, HashSet<AssertCmd>>();
-      queryProgram.Implementations.Single().Blocks.ForEach(b =>
+      joinedProgram.Implementations.Single().Blocks.ForEach(b =>
       {
         trueAsserts[b] = new HashSet<AssertCmd>();
         b.Cmds.ForEach(c =>
@@ -213,12 +229,15 @@ namespace SemSim
       queryImplementation.Blocks.AddRange(targetImplementation.Blocks);
     }
 
-    private void JoinTopLevelDeclarations(Program queryProgram, Program targetProgram)
+    private Program JoinTopLevelDeclarations(Program queryProgram, Program targetProgram)
     {
+      Program joinedProgram = new Program();
       // add all of target's functions, constants, globals and procedures to query
-      queryProgram.AddTopLevelDeclarations(targetProgram.Functions.Where(f2 => !queryProgram.Functions.Select(f => f.Name).Contains(f2.Name)));
-      queryProgram.AddTopLevelDeclarations(targetProgram.Constants.Select(c2 => new Constant(Token.NoToken, new TypedIdent(Token.NoToken, TargetPrefix + c2.Name, c2.TypedIdent.Type), c2.Unique)));
-      queryProgram.AddTopLevelDeclarations(targetProgram.GlobalVariables.Select(g2 => new GlobalVariable(Token.NoToken, new TypedIdent(Token.NoToken, TargetPrefix + g2.Name, g2.TypedIdent.Type))));
+      joinedProgram.AddTopLevelDeclarations(targetProgram.TopLevelDeclarations.Except(targetProgram.Implementations).Where(decl2 => !queryProgram.TopLevelDeclarations.Select(decl1 => decl1.ToString()).Contains(decl2.ToString())));
+      joinedProgram.AddTopLevelDeclarations(queryProgram.TopLevelDeclarations.Except(queryProgram.Implementations));
+      joinedProgram.AddTopLevelDeclarations(queryProgram.Implementations);
+
+      return joinedProgram;
     }
 
     private List<Expr> CreateAssertsExprs(Implementation queryImplementation, Implementation targetImplementation)

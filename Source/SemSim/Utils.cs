@@ -96,6 +96,8 @@ namespace SemSim
         Ignore = new List<string>(ignore);
       }
 
+
+
       public override Implementation VisitImplementation(Implementation node)
       {
         var result = base.VisitImplementation(node);
@@ -114,7 +116,7 @@ namespace SemSim
 
       public override Variable VisitVariable(Variable node)
       {
-        if (node.Name.StartsWith(_prefix))
+        if (node is GlobalVariable || node.Name.StartsWith(_prefix))
           return node;
         var result = node.Clone() as Variable;
         if (result == null)
