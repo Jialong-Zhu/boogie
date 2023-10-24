@@ -265,7 +265,7 @@ namespace SemSim
       {
         targetImplementation.InParams.ForEach(it =>
         {
-          if (Equals(iq.TypedIdent.Type, it.TypedIdent.Type))
+          if (iq.TypedIdent.Type.Equals(it.TypedIdent.Type))
           {
             var eqVar = new LocalVariable(Token.NoToken, new TypedIdent(Token.NoToken, AssumeVarPrefix + "_" + _eqVarsCounter++, BType.Bool));
             assumeVars.Add(new Tuple<Variable, Expr, Expr>(eqVar, Expr.Ident(iq), Expr.Ident(it)));

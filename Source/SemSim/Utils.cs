@@ -1,5 +1,6 @@
 ﻿using Microsoft.Boogie;
 using System.Diagnostics;
+using Type = Microsoft.Boogie.Type;
 
 namespace SemSim
 {
@@ -177,17 +178,17 @@ namespace SemSim
       }
     }
 
-    public static string GetExprType(Expr expr)
+    public static Type GetExprType(Expr expr)
     {
       var le = expr as LiteralExpr;
       if (le != null)
-        return le.Type.ToString();
+        return le.Type;
       var ie = expr as IdentifierExpr;
       if (ie != null)
-        return ie.Decl.TypedIdent.Type.ToString();
+        return ie.Decl.TypedIdent.Type;
       var ne = expr as NAryExpr;
       if (ne != null && ne.Fun is MapSelect)
-        return ((ne.Args[0] as IdentifierExpr).Decl.TypedIdent.Type as MapType).Result.ToString();
+        return ((ne.Args[0] as IdentifierExpr).Decl.TypedIdent.Type as MapType).Result;
       return null;
     }
 
