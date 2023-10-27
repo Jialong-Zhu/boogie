@@ -117,7 +117,7 @@ namespace SemSim
 
       public override Variable VisitVariable(Variable node)
       {
-        if (node is GlobalVariable || node.Name.StartsWith(_prefix))
+        if (node is GlobalVariable || node is Constant || node.Name.StartsWith(_prefix))
           return node;
         var result = node.Clone() as Variable;
         if (result == null)
@@ -132,12 +132,12 @@ namespace SemSim
         return result;
       }
 
-      public override Cmd VisitCallCmd(CallCmd node)
-      {
-        if (!Ignore.Any(p => node.callee.StartsWith(p)))
-          node.callee = _prefix + node.callee;
-        return base.VisitCallCmd(node);
-      }
+      // public override Cmd VisitCallCmd(CallCmd node)
+      // {
+      //   if (!Ignore.Any(p => node.callee.StartsWith(p)))
+      //     node.callee = _prefix + node.callee;
+      //   return base.VisitCallCmd(node);
+      // }
 
       public override Cmd VisitAssignCmd(AssignCmd node)
       {

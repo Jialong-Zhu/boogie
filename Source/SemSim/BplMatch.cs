@@ -76,14 +76,6 @@ namespace SemSim
 
     private float Run(string queryText, string targetText)
     {
-      // Ad-hoc: rename $M.0 in target program to correctly check memory
-      bool memMap = queryText.Contains("$M.0") && targetText.Contains("$M.0");
-      if (memMap) 
-      {
-        Debug.WriteLine("Memory map enabled.");
-        targetText = targetText.Replace("$M.0", "_target.$M.0");
-      }
-
       Program queryProgram, targetProgram;
       if (!Utils.ParseProgram(queryText, out queryProgram) || !Utils.ParseProgram(targetText, out targetProgram))
       {
@@ -117,12 +109,12 @@ namespace SemSim
 
       JoinImplementations(joinedImplementation, targetImplementation);
 
-      if (memMap) 
+      // check if both program contains memory map, if so assume they are equal
+      var memMaps = joinedProgram.GlobalVariables.FindAll(v => v.ToString().StartsWith("$M.0"));
+      if (memMaps.Count == 2) 
       {
         joinedImplementation.Blocks.First().Cmds.Insert(0, new AssumeCmd(Token.NoToken, Expr.Eq(
-          Expr.Ident(joinedProgram.GlobalVariables.Find(v => v.ToString() == "$M.0")), 
-          Expr.Ident(joinedProgram.GlobalVariables.Find(v => v.ToString() == "_target.$M.0"))
-        )));
+          Expr.Ident(memMaps[0]), Expr.Ident(memMaps[1]))));
       }
       joinedImplementation.Blocks.Last().TransferCmd = new GotoCmd(Token.NoToken, blocks);
       joinedImplementation.Blocks.AddRange(blocks);
@@ -343,16 +335,17 @@ namespace SemSim
       }
 
       // always start from the next group
-      for (var i = (pick.Count > 0) ? pick.Last().Item1 + 1 : 0; i < eqVarsGroups.Count; ++i)
+      var i = eqVarsGroups.Count - depth;
+      // inside the group, try all candidates
+      for (int j = 0; j < eqVarsGroups[i].Count; ++j)
       {
-        // inside the group, try all candidates
-        for (int j = 0; j < eqVarsGroups[i].Count; ++j)
-        {
-          var l = new List<Tuple<int, int>>(pick) { new Tuple<int, int>(i, j) };
-          EnumerateAssumes(l, depth - 1, asserts, eqVarsGroups, result);
-        }
+        var l = new List<Tuple<int, int>>(pick) { new Tuple<int, int>(i, j) };
+        EnumerateAssumes(l, depth - 1, asserts, eqVarsGroups, result);
       }
-
+      // try select nothing for next group
+      if (pick.Count > 0) {
+        EnumerateAssumes(new List<Tuple<int, int>>(pick), depth - 1, asserts, eqVarsGroups, result);
+      }
     }
 
   }
