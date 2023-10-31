@@ -158,8 +158,9 @@ namespace SemSim
         b.Cmds.ForEach(c =>
         {
           var ac = c as AssertCmd;
-          if (ac != null && !failedAssertsLineNumbers.Contains(ac.Line))
+          if (ac != null && !failedAssertsLineNumbers.Contains(ac.Line)) {
             trueAsserts[b].Add(ac);
+          }
         });
       });
 
@@ -238,11 +239,11 @@ namespace SemSim
       queryImplementation.LocVars.ForEach(v =>
       {
         var type = Utils.GetExprType(Expr.Ident(v));
-        if (type != null)
-          targetImplementation.LocVars.ForEach(v2 =>
-          {
-            if (type.Equals(Utils.GetExprType(Expr.Ident(v2)))) result.Add(Expr.Eq(Expr.Ident(v), Expr.Ident(v2)));
+        if (type != null) {
+          targetImplementation.LocVars.ForEach(v2 => {
+            if (type.Equals(Utils.GetExprType(Expr.Ident(v2)))) { result.Add(Expr.Eq(Expr.Ident(v), Expr.Ident(v2))); }
           });
+        }
       });
       return result;
     }
@@ -272,8 +273,9 @@ namespace SemSim
       assumeVars.ForEach(t =>
       {
         var lhs = t.Item2.ToString();
-        if (!eqVarsGroups.ContainsKey(lhs))
+        if (!eqVarsGroups.ContainsKey(lhs)) {
           eqVarsGroups[lhs] = new List<Tuple<Variable, Expr, Expr>>();
+        }
         eqVarsGroups[lhs].Add(t);
       });
       assumeVars.ForEach(t => queryImplementation.LocVars.Add(t.Item1));
@@ -291,7 +293,7 @@ namespace SemSim
       }
 
       var result = new List<Block>();
-      EnumerateAssumes(new List<Tuple<int, int>>(), n, asserts, eqVarsGroups, result);
+      EnumerateAssumes(0, new List<Variable>(), new HashSet<int>(), new HashSet<string>(), eqVarsGroups, asserts, result);
       return result;
     }
 
@@ -309,45 +311,51 @@ namespace SemSim
       return result.ToList();
     }
 
-    private void EnumerateAssumes(List<Tuple<int, int>> pick, int depth, List<Cmd> asserts,
-        List<List<Tuple<Variable, Expr, Expr>>> eqVarsGroups, List<Block> result)
+    private void EnumerateAssumes(int group, List<Variable> eqVarsPick, HashSet<int> usedLhs, HashSet<string> usedRhs, 
+      List<List<Tuple<Variable, Expr, Expr>>> eqVarsGroups, List<Cmd> asserts, List<Block> result)
     {
-      if (depth == 0)
+      if (group == eqVarsGroups.Count) 
       {
-        var usedExprs = new HashSet<string>();
-        var eqVarsPick = new List<Variable>();
-        foreach (Tuple<int, int> t in pick)
+        // enumeration ends, check if it's a maximal match
+        for (int i = 0; i < eqVarsGroups.Count; ++i) 
         {
-          var tuple = eqVarsGroups[t.Item1][t.Item2];
-          if (usedExprs.Contains(tuple.Item3.ToString()))
-            return;
-          usedExprs.Add(tuple.Item3.ToString());
-          eqVarsPick.Add(tuple.Item1);
+          if (usedLhs.Contains(i)) {
+            continue;
+          }
+          for (int j = 0; j < eqVarsGroups[i].Count; ++j)
+          { 
+            if(!usedRhs.Contains(eqVarsGroups[i][j].Item3.ToString())) {
+              return;
+            }
+          }
         }
 
         var b = new Block { Label = SectionLabelPrefix + "_" + _labelCounter++ };
-        foreach (var eqv in eqVarsPick)
+        foreach (var eqv in eqVarsPick) {
           b.Cmds.Add(new AssumeCmd(Token.NoToken, Expr.Ident(eqv)));
+        }
         b.Cmds.AddRange(asserts);
         b.TransferCmd = new ReturnCmd(Token.NoToken);
         result.Add(b);
         return;
       }
 
-      // always start from the next group
-      var i = eqVarsGroups.Count - depth;
-      // inside the group, try all candidates
-      for (int j = 0; j < eqVarsGroups[i].Count; ++j)
+      // try all possible edges for group
+      for (int j = 0; j < eqVarsGroups[group].Count; ++j)
       {
-        var l = new List<Tuple<int, int>>(pick) { new Tuple<int, int>(i, j) };
-        EnumerateAssumes(l, depth - 1, asserts, eqVarsGroups, result);
-      }
-      // try select nothing for next group
-      if (pick.Count > 0) {
-        EnumerateAssumes(new List<Tuple<int, int>>(pick), depth - 1, asserts, eqVarsGroups, result);
-      }
-    }
+        if (usedRhs.Contains(eqVarsGroups[group][j].Item3.ToString())) {
+          continue;
+        }
 
+        var newEqVarsPick = new List<Variable>(eqVarsPick) { eqVarsGroups[group][j].Item1};
+        var newUsedLhs = new HashSet<int>(usedLhs) {group};
+        var newUsedRhs = new HashSet<string>(usedRhs) {eqVarsGroups[group][j].Item3.ToString()};
+        EnumerateAssumes(group + 1, newEqVarsPick, newUsedLhs, newUsedRhs, eqVarsGroups, asserts, result);
+      }
+
+      // try not select edge for group
+      EnumerateAssumes(group + 1, eqVarsPick, usedLhs, usedRhs, eqVarsGroups, asserts, result);
+    }
   }
 
 }

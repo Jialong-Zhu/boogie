@@ -117,11 +117,13 @@ namespace SemSim
 
       public override Variable VisitVariable(Variable node)
       {
-        if (node is GlobalVariable || node is Constant || node.Name.StartsWith(_prefix))
+        if (node is GlobalVariable || node is Constant || node.Name.StartsWith(_prefix)) {
           return node;
+        }
         var result = node.Clone() as Variable;
-        if (result == null)
+        if (result == null) {
           return node;
+        }
         result.Name = _prefix + result.Name;
         return result;
       }
@@ -172,23 +174,27 @@ namespace SemSim
       {
         node.Label = _prefix + node.Label;
         var gotoCmd = node.TransferCmd as GotoCmd;
-        if (gotoCmd != null)
+        if (gotoCmd != null) {
           node.TransferCmd = new GotoCmd(Token.NoToken, gotoCmd.labelNames.Select(l => _prefix + l).ToList());
+        }
         return base.VisitBlock(node);
       }
     }
 
-    public static Type GetExprType(Expr expr)
+    public static Type? GetExprType(Expr expr)
     {
       var le = expr as LiteralExpr;
-      if (le != null)
+      if (le != null) {
         return le.Type;
+      }
       var ie = expr as IdentifierExpr;
-      if (ie != null)
+      if (ie != null) {
         return ie.Decl.TypedIdent.Type;
+      }
       var ne = expr as NAryExpr;
-      if (ne != null && ne.Fun is MapSelect)
+      if (ne != null && ne.Fun is MapSelect) {
         return ((ne.Args[0] as IdentifierExpr).Decl.TypedIdent.Type as MapType).Result;
+      }
       return null;
     }
 
