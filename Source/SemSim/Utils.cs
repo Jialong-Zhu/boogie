@@ -1,6 +1,5 @@
 ﻿using Microsoft.Boogie;
 using System.Diagnostics;
-using Type = Microsoft.Boogie.Type;
 
 namespace SemSim
 {
@@ -89,20 +88,31 @@ namespace SemSim
 
     public class VarRenamer : StandardVisitor
     {
-      private readonly string _prefix;
+      private readonly string _suffix;
       public List<string> Ignore;
-      public VarRenamer(string prefix, string[] ignore)
+      public VarRenamer(string suffix, string[] ignore)
       {
-        _prefix = prefix;
+        _suffix = suffix;
         Ignore = new List<string>(ignore);
       }
 
+      public override Declaration VisitDeclaration(Declaration node)
+      {
+        if (node is GlobalVariable) {
+          GlobalVariable gv = (GlobalVariable)node;
+          return new GlobalVariable(Token.NoToken, new TypedIdent(Token.NoToken, gv.Name + _suffix, gv.TypedIdent.Type));
+        } else if (node is Constant) {
+          Constant ct = (Constant)node;
+          return new Constant(Token.NoToken, new TypedIdent(Token.NoToken, ct.Name + _suffix, ct.TypedIdent.Type));       
+        }
 
+        return node;
+      }
 
       public override Implementation VisitImplementation(Implementation node)
       {
         var result = base.VisitImplementation(node);
-        result.Name = _prefix + result.Name;
+        // result.Name = result.Name + _suffix;
         result.InParams = result.InParams.Select(i => new LocalVariable(Token.NoToken, new TypedIdent(Token.NoToken, i.Name, i.TypedIdent.Type)) as Variable).ToList();
         result.OutParams = result.OutParams.Select(o => new LocalVariable(Token.NoToken, new TypedIdent(Token.NoToken, o.Name, o.TypedIdent.Type)) as Variable).ToList();
         result.LocVars = result.LocVars.Select(v => new LocalVariable(Token.NoToken, new TypedIdent(Token.NoToken, v.Name, v.TypedIdent.Type)) as Variable).ToList();
@@ -117,14 +127,14 @@ namespace SemSim
 
       public override Variable VisitVariable(Variable node)
       {
-        if (node is GlobalVariable || node is Constant || node.Name.StartsWith(_prefix)) {
-          return node;
-        }
+        // if (node.Name.StartsWith(_prefix)) {
+        //   return node;
+        // }
         var result = node.Clone() as Variable;
         if (result == null) {
           return node;
         }
-        result.Name = _prefix + result.Name;
+        result.Name = result.Name + _suffix;
         return result;
       }
 
@@ -172,32 +182,32 @@ namespace SemSim
 
       public override Block VisitBlock(Block node)
       {
-        node.Label = _prefix + node.Label;
+        node.Label = node.Label + _suffix;
         var gotoCmd = node.TransferCmd as GotoCmd;
         if (gotoCmd != null) {
-          node.TransferCmd = new GotoCmd(Token.NoToken, gotoCmd.labelNames.Select(l => _prefix + l).ToList());
+          node.TransferCmd = new GotoCmd(Token.NoToken, gotoCmd.labelNames.Select(l => l + _suffix).ToList());
         }
         return base.VisitBlock(node);
       }
     }
 
-    public static Type? GetExprType(Expr expr)
+    public static string? GetExprType(Expr expr)
     {
       var le = expr as LiteralExpr;
       if (le != null) {
-        return le.Type;
+        return le.Type.ToString();
       }
       var ie = expr as IdentifierExpr;
       if (ie != null) {
-        return ie.Decl.TypedIdent.Type;
+        return ie.Decl.TypedIdent.Type.ToString();
       }
       var ne = expr as NAryExpr;
       if (ne != null && ne.Fun is MapSelect) {
-        return ((ne.Args[0] as IdentifierExpr).Decl.TypedIdent.Type as MapType).Result;
+        return ((ne.Args[0] as IdentifierExpr).Decl.TypedIdent.Type as MapType).Result.ToString();
       }
       return null;
     }
-
+    
     public static AssignCmd CreateAssignCmd(IEnumerable<IdentifierExpr> lhs, IEnumerable<Expr> rhs)
     {
       List<AssignLhs> assignLhss = new List<AssignLhs>();

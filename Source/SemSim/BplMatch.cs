@@ -18,7 +18,7 @@ namespace SemSim
     private static readonly string HavocVarName = "_havoc";
     private static readonly string AssumeVarPrefix = "_eq";
     private static readonly string SectionLabelPrefix = "_section";
-    private static readonly string TargetPrefix = "_target";
+    private static readonly string TargetSuffix = ".target";
 
     private static readonly float ErrorSim = -1;
 
@@ -69,7 +69,7 @@ namespace SemSim
 
     public BplMatch()
     {
-      _renamer = new Utils.VarRenamer(TargetPrefix + ".", new string[] { });
+      _renamer = new Utils.VarRenamer(TargetSuffix, new string[] { });
       _eqVarsCounter = 0;
       _havocVar = new LocalVariable(Token.NoToken, new TypedIdent(Token.NoToken, HavocVarName, BType.Bool));
     }
@@ -110,12 +110,18 @@ namespace SemSim
       JoinImplementations(joinedImplementation, targetImplementation);
 
       // check if both program contains memory map, if so assume they are equal
-      var memMaps = joinedProgram.GlobalVariables.FindAll(v => v.ToString().StartsWith("$M.0"));
-      if (memMaps.Count == 2) 
-      {
-        joinedImplementation.Blocks.First().Cmds.Insert(0, new AssumeCmd(Token.NoToken, Expr.Eq(
-          Expr.Ident(memMaps[0]), Expr.Ident(memMaps[1]))));
-      }
+      var memVars = joinedProgram.GlobalVariables.FindAll(v => v.ToString().StartsWith("$Mem."));
+      var targetMemVars = memVars.Where(v => v.ToString().EndsWith(TargetSuffix));
+      var queryMemVars = memVars.Except(targetMemVars);
+
+      targetMemVars.ForEach(tv => {
+        var sameMaps = queryMemVars.Where(qv => tv.ToString().StartsWith(qv.ToString())).ToList();
+        if (sameMaps.Count == 1) {
+          joinedImplementation.Blocks.First().Cmds.Insert(0, new AssumeCmd(Token.NoToken, Expr.Eq(
+            Expr.Ident(tv), Expr.Ident(sameMaps.Single()))));
+        }
+      });
+
       joinedImplementation.Blocks.Last().TransferCmd = new GotoCmd(Token.NoToken, blocks);
       joinedImplementation.Blocks.AddRange(blocks);
 
@@ -225,10 +231,17 @@ namespace SemSim
     private Program JoinTopLevelDeclarations(Program queryProgram, Program targetProgram)
     {
       Program joinedProgram = new Program();
-      // add all of target's functions, constants, globals and procedures to query
-      joinedProgram.AddTopLevelDeclarations(targetProgram.TopLevelDeclarations.Except(targetProgram.Implementations).Where(decl2 => !queryProgram.TopLevelDeclarations.Select(decl1 => decl1.ToString()).Contains(decl2.ToString())));
-      joinedProgram.AddTopLevelDeclarations(queryProgram.TopLevelDeclarations.Except(queryProgram.Implementations));
-      joinedProgram.AddTopLevelDeclarations(queryProgram.Implementations);
+
+      // add all of target's functions, constants, globals and typeDecls
+      joinedProgram.AddTopLevelDeclarations(targetProgram.TopLevelDeclarations
+        .Where(node => node is GlobalVariable || node is Constant || node is Function || node is TypeSynonymDecl)
+        .Select(decl => _renamer.VisitDeclaration(decl)));
+
+      var strings = joinedProgram.TopLevelDeclarations.Select(v => v.ToString()).ToList();
+      joinedProgram.AddTopLevelDeclarations(queryProgram.TopLevelDeclarations
+        .Where(decl1 => !strings.Contains(decl1.ToString())));
+
+      joinedProgram.Procedures.Single().Modifies.AddRange(targetProgram.Procedures.Single().Modifies.Select(v => new IdentifierExpr(Token.NoToken, v.Name + TargetSuffix)));
 
       return joinedProgram;
     }
