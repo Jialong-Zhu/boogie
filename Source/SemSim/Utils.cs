@@ -5,17 +5,15 @@ namespace SemSim
 {
   public class Utils
   {
-    public static readonly int MaxAsserts = 10000;
+    public static readonly int MaxAsserts = 1000;
 
     private static ExecutionEngine Engine;
     private static CommandLineOptions PrintOptions;
     private static CommandLineOptions ProcessOptions;
-    private static StringWriter PrintBuffer;
     private static StringWriter ProcessBuffer;
 
     static Utils()
     {
-      PrintBuffer = new StringWriter();
       ProcessBuffer = new StringWriter();
 
       var printBoogieOptions = $"/typeEncoding:m -timeLimit:1 -removeEmptyBlocks:0 /printInstrumented";
