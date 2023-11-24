@@ -234,7 +234,9 @@ namespace SemSim
 
       // add all of target's functions, constants, globals and typeDecls
       joinedProgram.AddTopLevelDeclarations(targetProgram.TopLevelDeclarations
-        .Where(node => node is GlobalVariable || node is Constant || node is Function || node is TypeSynonymDecl)
+        .Where(node => node is GlobalVariable || node is Constant || 
+                       node is Function || node is TypeSynonymDecl ||
+                       node is TypeCtorDecl)
         .Select(decl => _renamer.VisitDeclaration(decl)));
 
       var strings = joinedProgram.TopLevelDeclarations.Select(v => v.ToString()).ToList();
