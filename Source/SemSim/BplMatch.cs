@@ -22,49 +22,9 @@ namespace SemSim
 
     private static readonly float ErrorSim = -1;
 
-    private static void Usage()
-    {
-      Console.WriteLine("bplmatch - find the best matching for given query and target.");
-      Console.WriteLine("Usage: bplmatch <query.bpl> <target.bpl>");
-      Console.WriteLine("-break - start in debug mode");
-    }
-
-    static int Main(string[] args)
-    {
-
-      if (args.Length < 2 || args.Length > 3)
-      {
-        Usage();
-        return -1;
-      }
-
-      if (args.Length == 3 && args[2].ToLower() == "-break")
-      {
-        Debugger.Launch();
-      }
-
-      string qtext, ttext;
-      if (File.Exists(args[0]) && File.Exists(args[1]))
-      {
-        using StreamReader qr = new StreamReader(args[0]), tr = new StreamReader(args[1]);
-        qtext = qr.ReadToEnd();
-        ttext = tr.ReadToEnd();
-      }
-      else
-      {
-        qtext = args[0];
-        ttext = args[1];
-      }
-
-      float sim = RunMatch(qtext, ttext);
-      Console.Out.WriteLine($"Sim: {sim}");
-
-      return 0;
-    }
-
     public static float RunMatch(string queryText, string targetText)
     {
-      return (new BplMatch()).Run(queryText, targetText);
+      return new BplMatch().Run(queryText, targetText);
     }
 
     public BplMatch()
@@ -100,6 +60,12 @@ namespace SemSim
       int numAssert;
       var assumeVars = new List<Tuple<Variable, Expr, Expr>>();
       var blocks = CreateAssertsBlocks(joinedImplementation, targetImplementation, assumeVars, out numAssert);
+      
+      Debug.WriteLine($"Asserts num: {numAssert}");
+      
+      if (numAssert == 0) {
+        return 0F;
+      }
 
       if (numAssert > Utils.MaxAsserts)
       {
@@ -127,7 +93,7 @@ namespace SemSim
 
       // print new program and reparse to fix resolving problems
       string joinedText = Utils.PrintProgram(joinedProgram);
-      Debug.WriteLine(joinedText);
+      // Debug.WriteLine(joinedText);
       if (!Utils.ParseProgram(joinedText, out joinedProgram))
       {
         return ErrorSim;
@@ -135,7 +101,7 @@ namespace SemSim
 
       // run Boogie and get the output
       var output = Utils.RunBoogie(joinedProgram);
-      Debug.WriteLine(output);
+      // Debug.WriteLine(output);
       if (output == null)
       {
         return ErrorSim;
@@ -189,15 +155,13 @@ namespace SemSim
       });
       Debug.WriteLine("==> ");
 
-      bool error = false;
       var matchedVars = new HashSet<string>(); // remember that a variable can be matched more than once
       trueAsserts[bestBlock].ForEach(a =>
       {
         var s = a.Expr.ToString().Split(new string[] { " || " }, StringSplitOptions.None);
         if (s.Count() <= 1)
         {
-          error = true;
-          Debug.WriteLine($"Too few exprs from {a.Expr}");
+          Debug.WriteLine($"Warning: Too few exprs from {a.Expr}");
         }
         else
         {
@@ -207,10 +171,6 @@ namespace SemSim
           matchedVars.Add(vars[1]);
         }
       });
-      if (error)
-      {
-        return ErrorSim;
-      }
 
       float res = matchedVars.Count / (float)numTotalLocals;
       Debug.WriteLine($"\nMatched sim: {res}");
@@ -267,7 +227,6 @@ namespace SemSim
     {
       var exprs = CreateAssertsExprs(queryImplementation, targetImplementation);
       var assertsCmds = CreateAsserts(exprs);
-      numAsserts = assertsCmds.Count;
 
       queryImplementation.InParams.ForEach(iq =>
       {
@@ -294,7 +253,10 @@ namespace SemSim
         eqVarsGroups[lhs].Add(t);
       });
       assumeVars.ForEach(t => queryImplementation.LocVars.Add(t.Item1));
-      return CreateAssertsWithAssumes(eqVarsGroups.Values.ToList(), assertsCmds);
+      var res = CreateAssertsWithAssumes(eqVarsGroups.Values.ToList(), assertsCmds);
+      numAsserts = assertsCmds.Count*res.Count;
+
+      return res;
     }
 
     private List<Block> CreateAssertsWithAssumes(List<List<Tuple<Variable, Expr, Expr>>> eqVarsGroups, List<Cmd> asserts)
