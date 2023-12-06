@@ -60,6 +60,11 @@ namespace SemSim
       int numAssert;
       var assumeVars = new List<Tuple<Variable, Expr, Expr>>();
       var blocks = CreateAssertsBlocks(joinedImplementation, targetImplementation, assumeVars, out numAssert);
+
+      if (blocks is null) {
+        Debug.WriteLine("Too many search paths");
+        return ErrorSim;
+      }
       
       Debug.WriteLine($"Asserts num: {numAssert}");
       
@@ -223,7 +228,7 @@ namespace SemSim
       return result;
     }
 
-    private List<Block> CreateAssertsBlocks(Implementation queryImplementation, Implementation targetImplementation, List<Tuple<Variable, Expr, Expr>> assumeVars, out int numAsserts)
+    private List<Block>? CreateAssertsBlocks(Implementation queryImplementation, Implementation targetImplementation, List<Tuple<Variable, Expr, Expr>> assumeVars, out int numAsserts)
     {
       var exprs = CreateAssertsExprs(queryImplementation, targetImplementation);
       var assertsCmds = CreateAsserts(exprs);
@@ -252,6 +257,17 @@ namespace SemSim
         }
         eqVarsGroups[lhs].Add(t);
       });
+
+      int maxPaths = 1;
+      foreach (var g in eqVarsGroups) {
+        maxPaths *= g.Value.Count;
+        // Too many search paths
+        if (maxPaths > 10000) {
+          numAsserts = -1;
+          return null;
+        }
+      }
+
       assumeVars.ForEach(t => queryImplementation.LocVars.Add(t.Item1));
       var res = CreateAssertsWithAssumes(eqVarsGroups.Values.ToList(), assertsCmds);
       numAsserts = assertsCmds.Count*res.Count;

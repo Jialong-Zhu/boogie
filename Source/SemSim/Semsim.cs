@@ -69,7 +69,7 @@ namespace SemSim
         for (int i = 0; i < pairs.Count; ++i)
         {
           float sim = BplMatch.RunMatch(id2bpl[pairs[i][0]], id2bpl[pairs[i][1]]);
-          writer.WriteLine(String.Format("{0} {1} {2}", pairs[i][0], pairs[i][1], sim));
+          writer.WriteLine(string.Format("{0} {1} {2}", pairs[i][0], pairs[i][1], sim));
           writer.Flush();
         }
       }
