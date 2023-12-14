@@ -235,9 +235,14 @@ namespace SemSim
 
       queryImplementation.InParams.ForEach(iq =>
       {
+        var type = Utils.GetExprType(Expr.Ident(iq));
+        if (type == null) 
+        {
+          return;
+        }
         targetImplementation.InParams.ForEach(it =>
         {
-          if (iq.TypedIdent.Type.Equals(it.TypedIdent.Type))
+          if (type.Equals(Utils.GetExprType(Expr.Ident(it))))
           {
             var eqVar = new LocalVariable(Token.NoToken, new TypedIdent(Token.NoToken, AssumeVarPrefix + "_" + _eqVarsCounter++, BType.Bool));
             assumeVars.Add(new Tuple<Variable, Expr, Expr>(eqVar, Expr.Ident(iq), Expr.Ident(it)));
