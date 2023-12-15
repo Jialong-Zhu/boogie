@@ -7,28 +7,28 @@ namespace SemSim
   {
     public static readonly int MaxAsserts = 1000;
 
-    private static ExecutionEngine Engine;
-    private static CommandLineOptions PrintOptions;
-    private static CommandLineOptions ProcessOptions;
-    private static StringWriter ProcessBuffer;
+    private ExecutionEngine engine;
+    private CommandLineOptions printOptions;
+    private CommandLineOptions processOptions;
+    private StringWriter processBuffer;
 
-    static Utils()
+    public Utils()
     {
-      ProcessBuffer = new StringWriter();
+      processBuffer = new StringWriter();
 
       var printBoogieOptions = $"/typeEncoding:m -timeLimit:1 -removeEmptyBlocks:0 /printInstrumented";
-      PrintOptions = CommandLineOptions.FromArguments(TextWriter.Null, printBoogieOptions.Split(' '));
-      PrintOptions.UseUnsatCoreForContractInfer = true;
-      PrintOptions.ContractInfer = true;
-      PrintOptions.ExplainHoudini = true;
+      printOptions = CommandLineOptions.FromArguments(TextWriter.Null, printBoogieOptions.Split(' '));
+      printOptions.UseUnsatCoreForContractInfer = true;
+      printOptions.ContractInfer = true;
+      printOptions.ExplainHoudini = true;
 
       var processBoogieOptions = $"/timeLimit:1 /errorLimit:{MaxAsserts} /useArrayAxioms";
-      ProcessOptions = CommandLineOptions.FromArguments(TextWriter.Null, processBoogieOptions.Split(' '));
+      processOptions = CommandLineOptions.FromArguments(TextWriter.Null, processBoogieOptions.Split(' '));
 
-      Engine = ExecutionEngine.CreateWithoutSharedCache(ProcessOptions);
+      engine = ExecutionEngine.CreateWithoutSharedCache(processOptions);
     }
 
-    public static bool ParseProgram(string text, out Program program)
+    public bool ParseProgram(string text, out Program program)
     {
       program = null;
       int errCount;
@@ -47,40 +47,40 @@ namespace SemSim
         return false;
       }
 
-      errCount = program.Resolve(PrintOptions);
+      errCount = program.Resolve(printOptions);
       if (errCount > 0)
       {
         Debug.WriteLine($"Name resolution errors in: {text}");
         return false;
       }
 
-      ModSetCollector c = new ModSetCollector(PrintOptions);
+      ModSetCollector c = new ModSetCollector(printOptions);
       c.DoModSetAnalysis(program);
 
       return true;
     }
 
-    public static string PrintProgram(Program program)
+    public string PrintProgram(Program program)
     {
-      var ttw = new TokenTextWriter(ProcessBuffer, PrintOptions);
+      var ttw = new TokenTextWriter(processBuffer, printOptions);
       program.Emit(ttw);
 
-      string res = ProcessBuffer.ToString();
-      ProcessBuffer.GetStringBuilder().Clear();
+      string res = processBuffer.ToString();
+      processBuffer.GetStringBuilder().Clear();
       return res;
     }
 
-    public static string? RunBoogie(Program program)
+    public async Task<string?> RunBoogie(Program program)
     {
-      var success = Engine.ProcessProgram(ProcessBuffer, program, "from_string").Result;
+      var success = await engine.ProcessProgram(processBuffer, program, "from_string");
 
       if (!success)
       {
-        Debug.WriteLine($"Boogie running errors due to: {ProcessBuffer}");
+        Debug.WriteLine($"Boogie running errors due to: {processBuffer}");
       }
 
-      string? res = success ? ProcessBuffer.ToString() : null;
-      ProcessBuffer.GetStringBuilder().Clear();
+      string? res = success ? processBuffer.ToString() : null;
+      processBuffer.GetStringBuilder().Clear();
       return res;
     }
 

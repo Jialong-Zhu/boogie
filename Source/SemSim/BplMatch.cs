@@ -9,6 +9,7 @@ namespace SemSim
   public class BplMatch
   {
     private Utils.VarRenamer _renamer;
+    private Utils _utils;
     private int _eqVarsCounter;
     private int _labelCounter;
 
@@ -22,22 +23,23 @@ namespace SemSim
 
     private static readonly float ErrorSim = -1;
 
-    public static float RunMatch(string queryText, string targetText)
+    public static async Task<float> RunMatch(string queryText, string targetText)
     {
-      return new BplMatch().Run(queryText, targetText);
+      return await new BplMatch().Run(queryText, targetText);
     }
 
     public BplMatch()
     {
+      _utils = new Utils();
       _renamer = new Utils.VarRenamer(TargetSuffix, new string[] { });
       _eqVarsCounter = 0;
       _havocVar = new LocalVariable(Token.NoToken, new TypedIdent(Token.NoToken, HavocVarName, BType.Bool));
     }
 
-    private float Run(string queryText, string targetText)
+    private async Task<float> Run(string queryText, string targetText)
     {
       Program queryProgram, targetProgram;
-      if (!Utils.ParseProgram(queryText, out queryProgram) || !Utils.ParseProgram(targetText, out targetProgram))
+      if (!_utils.ParseProgram(queryText, out queryProgram) || !_utils.ParseProgram(targetText, out targetProgram))
       {
         return ErrorSim;
       }
@@ -97,15 +99,15 @@ namespace SemSim
       joinedImplementation.Blocks.AddRange(blocks);
 
       // print new program and reparse to fix resolving problems
-      string joinedText = Utils.PrintProgram(joinedProgram);
+      string joinedText = _utils.PrintProgram(joinedProgram);
       // Debug.WriteLine(joinedText);
-      if (!Utils.ParseProgram(joinedText, out joinedProgram))
+      if (!_utils.ParseProgram(joinedText, out joinedProgram))
       {
         return ErrorSim;
       }
 
       // run Boogie and get the output
-      var output = Utils.RunBoogie(joinedProgram);
+      var output = await _utils.RunBoogie(joinedProgram);
       // Debug.WriteLine(output);
       if (output == null)
       {
@@ -113,7 +115,7 @@ namespace SemSim
       }
 
       // reparse queryProgram from joinedText to avoid side effects from RunBoogie
-      if (!Utils.ParseProgram(joinedText, out joinedProgram))
+      if (!_utils.ParseProgram(joinedText, out joinedProgram))
       {
         return ErrorSim;
       }
