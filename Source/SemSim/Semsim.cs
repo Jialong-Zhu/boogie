@@ -13,10 +13,10 @@ namespace SemSim
       Console.WriteLine("Usage: semsim <query.bpl> <target.bpl>");
       Console.WriteLine("    or semsim <bpl_text1> <bpl_text2>");
       Console.WriteLine("    or semsim <bpl_code.jsonl> <semsims.txt>");
-      Console.WriteLine("    or semsim <bpl_code_dir> <funcs_file> <bb_id_map> <func_batches> <semsims.txt> <pair_per_batch>");
+      Console.WriteLine("    or semsim <bpl_code_dir> <funcs_file> <bb_id_map> <func_batches> <temp_dir> <semsims.txt> <pair_per_batch> <num_process>");
     }
 
-    static async Task<int> Main(string[] args)
+    static int Main(string[] args)
     {
       if (args[0].EndsWith(".bpl"))
       {
@@ -24,22 +24,24 @@ namespace SemSim
         {
           string qtext = qr.ReadToEnd();
           string ttext = tr.ReadToEnd();
-          float sim = await BplMatch.RunMatch(qtext, ttext);
+          float sim = BplMatch.RunMatch(qtext, ttext);
           Console.Out.WriteLine($"sim: {sim}");
         }
       }
       else if (args[0].EndsWith(".jsonl"))
       {
-        Task.Run(() => ComputeSemsimsForFile(args[0], args[1])).Wait();
+        ComputeSemsimsForFile(args[0], args[1]);
       }
       else if (args.Length == 2)
       {
-        float sim = await BplMatch.RunMatch(args[0], args[1]);
+        float sim = BplMatch.RunMatch(args[0], args[1]);
         Console.Out.WriteLine($"sim: {sim}");
       }
-      else if (args.Length == 6)
+      else if (args.Length == 8)
       {
-        Task.Run(() => ComputeSemsimsForBatches(args[0], args[1], args[2], args[3], args[4], int.Parse(args[5]))).Wait();
+        ComputeSemsimsForBatches(args[0], args[1], args[2],
+          args[3], args[4], args[5], int.Parse(args[6]), int.Parse(args[7])
+        );
       }
       else
       {
@@ -50,7 +52,7 @@ namespace SemSim
       return 0;
     }
 
-    private static async void ComputeSemsimsForFile(string bpl_code_file, string semsims_file)
+    private static void ComputeSemsimsForFile(string bpl_code_file, string semsims_file)
     {
       Dictionary<string, string> id2bpl = new Dictionary<string, string>();
 
@@ -70,7 +72,7 @@ namespace SemSim
       {
         for (int i = 0; i < pairs.Count; ++i)
         {
-          float sim = await BplMatch.RunMatch(id2bpl[pairs[i][0]], id2bpl[pairs[i][1]]);
+          float sim = BplMatch.RunMatch(id2bpl[pairs[i][0]], id2bpl[pairs[i][1]]);
           writer.WriteLine(string.Format("{0} {1} {2}", pairs[i][0], pairs[i][1], sim));
           writer.Flush();
         }
@@ -129,7 +131,7 @@ namespace SemSim
     private static Dictionary<int, List<Tuple<int, string>>> BuildBplCodeDict(string bpl_code_dir, string funcs_file, string bb_id_map)
     {
       List<FuncItem> funcs = File.ReadAllLines(funcs_file).Select(line => JsonSerializer.Deserialize<FuncItem>(line)).ToList();
-      
+
       Dictionary<string, int> bb2id = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(bb_id_map));
       string[] bpl_files = Directory.GetFiles(bpl_code_dir, "*.jsonl", SearchOption.AllDirectories);
       Dictionary<int, string> bbid2bpl = new Dictionary<int, string>();
@@ -151,22 +153,25 @@ namespace SemSim
         var bpls = func.blocks.Where(i => bbid2bpl.ContainsKey(i))
                               .Select(i => new Tuple<int, string>(i, bbid2bpl[i]))
                               .ToList();
-        funcid2bpls[func.id] = bpls;        
+        funcid2bpls[func.id] = bpls;
       }
       return funcid2bpls;
     }
 
-    private static async void ComputeSemsimsForBatches(string bpl_code_dir, string funcs_file, 
-      string bb_id_map, string func_batches, string semsims_file, int pair_per_batch)
+    private static void ComputeSemsimsForBatches(string bpl_code_dir, string funcs_file,
+      string bb_id_map, string func_batches, string temp_dir, string semsims_file,
+      int pair_per_batch, int num_process)
     {
+      Console.Out.WriteLine("Reading Bpl codes and batches info...");
       var funcid2bpls = BuildBplCodeDict(bpl_code_dir, funcs_file, bb_id_map);
       List<List<int>> batches = File.ReadAllLines(func_batches)
                                     .Where(line => !string.IsNullOrWhiteSpace(line))
                                     .Select(line => line.Split(' ').Select(s => int.Parse(s)).ToList())
                                     .ToList();
-      
+
       var random = new Random(0);
-      Func<List<int>, List<Tuple<Tuple<int, string>, Tuple<int, string>>>> samplePairsFromBatch = batch => {
+      Func<List<int>, List<Tuple<Tuple<int, string>, Tuple<int, string>>>> samplePairsFromBatch = batch =>
+      {
         var bpls = batch.SelectMany(i => funcid2bpls[i]).ToList();
         var pairs = new List<Tuple<Tuple<int, string>, Tuple<int, string>>>();
         for (int i = 0; i < bpls.Count - 1; i++)
@@ -177,40 +182,45 @@ namespace SemSim
           }
         }
         pairs = pairs.OrderBy(x => random.Next()).ToList();
-        pairs = pairs.Take(Math.Min(pair_per_batch, pairs.Count)).ToList();        
+        pairs = pairs.Take(Math.Min(pair_per_batch, pairs.Count)).ToList();
 
         return pairs;
       };
 
-      DateTime beg_time = DateTime.Now;
-      var tasks = new List<Task<Tuple<int, int, float>>>();
-      for (int i = 0; i < batches.Count; ++i)
+      Action<List<List<int>>, string> computeSemsimForGroup = (group, res_file) =>
       {
-        samplePairsFromBatch(batches[i]).ForEach(pair => 
-          tasks.Add(Task.Run(async () => new Tuple<int, int, float>(
-            pair.Item1.Item1, 
-            pair.Item2.Item1,
-            await BplMatch.RunMatch(pair.Item1.Item2, pair.Item2.Item2)
-          )
-        )));
-
-        if ((i + 1)%100 == 0 || i == batches.Count - 1)
+        using (StreamWriter writer = new StreamWriter(res_file))
         {
-          Task.WaitAll(tasks.ToArray());
-
-          using (StreamWriter writer = new StreamWriter(semsims_file, true))
+          foreach (var batch in group)
           {
-            foreach (var task in tasks)
+            var pairs = samplePairsFromBatch(batch);
+            foreach (var pair in pairs)
             {
-              var res = task.Result;
-              writer.WriteLine(string.Format("{0} {1} {2}", res.Item1, res.Item2, res.Item3));
+              float sim = BplMatch.RunMatch(pair.Item1.Item2, pair.Item2.Item2);
+              writer.WriteLine(string.Format("{0} {1} {2}", pair.Item1.Item1, pair.Item2.Item1, sim));
             }
+            writer.Flush();
           }
-          tasks.Clear();
+        }
+      };
 
-          TimeSpan elapsed = DateTime.Now - beg_time;
-          long time_per_batch = (long)(elapsed.TotalSeconds / (i + 1));
-          Console.Out.Write($"\r{i + 1,10}/{batches.Count} batches  {time_per_batch,4}s/batch");
+      Console.Out.WriteLine("Computing semsim...");
+      List<Task> tasks = new List<Task>();
+      int batchesPerGroup = batches.Count / num_process;
+      for (int i = 0; i < num_process; ++i)
+      {
+        var group = batches.GetRange(i * batchesPerGroup, Math.Min(batchesPerGroup, batches.Count - i*batchesPerGroup));
+        tasks.Add(Task.Run(() => computeSemsimForGroup(group, Path.Join(temp_dir, "semsims_" + i.ToString() + ".txt"))));
+      }
+      Task.WaitAll(tasks.ToArray());
+
+      Console.Out.WriteLine("Gathering results...");
+      using (StreamWriter writer = new StreamWriter(semsims_file))
+      {
+        for (int i = 0; i < batchesPerGroup; ++i)
+        {
+          string text = File.ReadAllText(Path.Join(temp_dir, "semsims_" + i.ToString() + ".txt"));
+          writer.Write(text);
         }
       }
     }

@@ -70,9 +70,10 @@ namespace SemSim
       return res;
     }
 
-    public async Task<string?> RunBoogie(Program program)
+    public string? RunBoogie(Program program)
     {
-      var success = await engine.ProcessProgram(processBuffer, program, "from_string");
+      var result = engine.ProcessProgram(processBuffer, program, "from_string");
+      var success = result.Result;
 
       if (!success)
       {

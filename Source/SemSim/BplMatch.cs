@@ -23,9 +23,9 @@ namespace SemSim
 
     private static readonly float ErrorSim = -1;
 
-    public static async Task<float> RunMatch(string queryText, string targetText)
+    public static float RunMatch(string queryText, string targetText)
     {
-      return await new BplMatch().Run(queryText, targetText);
+      return new BplMatch().Run(queryText, targetText);
     }
 
     public BplMatch()
@@ -36,7 +36,7 @@ namespace SemSim
       _havocVar = new LocalVariable(Token.NoToken, new TypedIdent(Token.NoToken, HavocVarName, BType.Bool));
     }
 
-    private async Task<float> Run(string queryText, string targetText)
+    private float Run(string queryText, string targetText)
     {
       Program queryProgram, targetProgram;
       if (!_utils.ParseProgram(queryText, out queryProgram) || !_utils.ParseProgram(targetText, out targetProgram))
@@ -107,7 +107,7 @@ namespace SemSim
       }
 
       // run Boogie and get the output
-      var output = await _utils.RunBoogie(joinedProgram);
+      var output = _utils.RunBoogie(joinedProgram);
       // Debug.WriteLine(output);
       if (output == null)
       {
