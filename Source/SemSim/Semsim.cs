@@ -13,7 +13,7 @@ namespace SemSim
       Console.WriteLine("Usage: semsim <query.bpl> <target.bpl>");
       Console.WriteLine("    or semsim <bpl_text1> <bpl_text2>");
       Console.WriteLine("    or semsim <bpl_code.jsonl> <semsims.txt>");
-      Console.WriteLine("    or semsim <bpl_code_dir> <funcs_file> <bb_id_map> <func_batches> <temp_dir> <semsims.txt> <pair_per_batch> <num_process>");
+      Console.WriteLine("    or semsim <bpl_code_dir> <funcs_file> <bb_id_map> <func_groups> <temp_dir> <semsims.txt> <pair_per_group> <num_process>");
     }
 
     static int Main(string[] args)
@@ -36,7 +36,7 @@ namespace SemSim
       }
       else if (args.Length == 8)
       {
-        ComputeSemsimsForBatches(args[0], args[1], args[2],
+        ComputeSemsimsForGroups(args[0], args[1], args[2],
           args[3], args[4], args[5], int.Parse(args[6]), int.Parse(args[7])
         );
       }
@@ -132,12 +132,16 @@ namespace SemSim
       Dictionary<string, int> bb2id = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(bb_id_map));
       string[] bpl_files = Directory.GetFiles(bpl_code_dir, "*.jsonl", SearchOption.AllDirectories);
       Dictionary<int, string> bbid2bpl = new Dictionary<int, string>();
+      
+      Utils utils = new Utils();
+      Program program = null;
+      
       foreach (var file in bpl_files)
       {
         foreach (var line in File.ReadAllLines(file))
         {
           var item = JsonSerializer.Deserialize<BplItem>(line);
-          if (bb2id.ContainsKey(item.id))
+          if (bb2id.ContainsKey(item.id) && utils.ParseProgram(item.bpl, out program))
           {
             bbid2bpl[bb2id[item.id]] = item.bpl;
           }
@@ -155,22 +159,21 @@ namespace SemSim
       return funcid2bpls;
     }
 
-    private static void ComputeSemsimsForBatches(string bpl_code_dir, string funcs_file,
-      string bb_id_map, string func_batches, string temp_dir, string semsims_file,
-      int pair_per_batch, int num_process)
+    private static void ComputeSemsimsForGroups(string bpl_code_dir, string funcs_file,
+      string bb_id_map, string func_groups, string temp_dir, string semsims_file, 
+      int pair_per_group, int num_process)
     {
-      Console.Out.WriteLine("Reading Bpl codes and batches info...");
+      Console.Out.WriteLine("Reading Bpl codes and groups info...");
 
       var funcid2bpls = BuildBplCodeDict(bpl_code_dir, funcs_file, bb_id_map);
-      List<List<int>> batches = File.ReadAllLines(func_batches)
-                                    .Where(line => !string.IsNullOrWhiteSpace(line))
-                                    .Select(line => line.Split(' ').Select(s => int.Parse(s)).ToList())
-                                    .ToList();
+      List<List<int>> groups = File.ReadAllLines(func_groups)
+                                   .Where(line => !string.IsNullOrWhiteSpace(line))
+                                   .Select(line => line.Split(' ').Select(s => int.Parse(s)).ToList())
+                                   .ToList();
 
-      var random = new Random(0);
-      Func<List<int>, List<Tuple<Tuple<int, string>, Tuple<int, string>>>> samplePairsFromBatch = batch =>
+      Func<List<int>, List<Tuple<Tuple<int, string>, Tuple<int, string>>>> samplePairsFromGroup = group =>
       {
-        var bpls = batch.SelectMany(i => funcid2bpls[i]).ToList();
+        var bpls = group.SelectMany(i => funcid2bpls[i]).ToList();
         var pairs = new List<Tuple<Tuple<int, string>, Tuple<int, string>>>();
         for (int i = 0; i < bpls.Count - 1; i++)
         {
@@ -179,55 +182,56 @@ namespace SemSim
             pairs.Add(new Tuple<Tuple<int, string>, Tuple<int, string>>(bpls[i], bpls[j]));
           }
         }
+        var random = new Random();
         pairs = pairs.OrderBy(x => random.Next()).ToList();
-        pairs = pairs.Take(Math.Min(pair_per_batch, pairs.Count)).ToList();
+        pairs = pairs.Take(Math.Min(pair_per_group, pairs.Count)).ToList();
 
         return pairs;
       };
 
-      Action<List<List<int>>, string, System.Action> computeSemsimForGroup = (group, res_file, batch_done) =>
+      Action<List<List<int>>, string, System.Action> computeSemsimForSmallGroups = (sgroups, res_file, group_done) =>
       {
         using (StreamWriter writer = new StreamWriter(res_file))
         {
-          foreach (var batch in group)
+          foreach (var group in sgroups)
           {
-            var pairs = samplePairsFromBatch(batch);
+            var pairs = samplePairsFromGroup(group);
             foreach (var pair in pairs)
             {
               float sim = BplMatch.RunMatch(pair.Item1.Item2, pair.Item2.Item2);
               writer.WriteLine(string.Format("{0} {1} {2}", pair.Item1.Item1, pair.Item2.Item1, sim));
             }
             writer.Flush();
-            batch_done();
+            group_done();
           }
         }
       };
 
       int done = 0;
       DateTime beg_time = DateTime.Now;
-      System.Action batch_done_callback = () => {
+      System.Action group_done_callback = () => {
         Interlocked.Increment(ref done);
 
         TimeSpan elapsed = DateTime.Now - beg_time;
-        long seconds_per_batch = (long)(elapsed.TotalSeconds / done);
-        TimeSpan eta = TimeSpan.FromSeconds(seconds_per_batch*(batches.Count - done));
-        string log_str = string.Format("\r{0,-10}/{1} batches {2} s/batch {3:hh\\:mm\\:ss} elapsed {4:hh\\:mm\\:ss} ETA",
-          done, batches.Count, seconds_per_batch, elapsed, eta);
+        long avg_time = (long)(elapsed.TotalSeconds / done);
+        TimeSpan eta = TimeSpan.FromSeconds(avg_time*(groups.Count - done));
+        string log_str = string.Format("\r{0,10}/{1} groups {2} s/group {3:hh\\:mm\\:ss} elapsed {4:dd\\:hh\\:mm\\:ss} ETA",
+          done, groups.Count, avg_time, elapsed, eta);
         
         Console.Out.Write(log_str);
       };
 
       Console.Out.WriteLine("Computing semsim...");
 
-      int batchesPerGroup = batches.Count / num_process;
+      int groupPerProcess = groups.Count / num_process;
       List<Task> tasks = new List<Task>();
       for (int i = 0; i < num_process; ++i)
       {
-        var group = batches.GetRange(i * batchesPerGroup, Math.Min(batchesPerGroup, batches.Count - i * batchesPerGroup));
-        tasks.Add(Task.Run(() => computeSemsimForGroup(
-          group, 
+        var sgroups = groups.GetRange(i * groupPerProcess, Math.Min(groupPerProcess, groups.Count - i * groupPerProcess));
+        tasks.Add(Task.Run(() => computeSemsimForSmallGroups(
+          sgroups, 
           Path.Join(temp_dir, "semsims_" + i.ToString() + ".txt"),
-          batch_done_callback
+          group_done_callback
         )));
       }
       Task.WaitAll(tasks.ToArray());
@@ -235,7 +239,7 @@ namespace SemSim
       Console.Out.WriteLine("Gathering results...");
       using (StreamWriter writer = new StreamWriter(semsims_file))
       {
-        for (int i = 0; i < batchesPerGroup; ++i)
+        for (int i = 0; i < num_process; ++i)
         {
           string text = File.ReadAllText(Path.Join(temp_dir, "semsims_" + i.ToString() + ".txt"));
           writer.Write(text);
