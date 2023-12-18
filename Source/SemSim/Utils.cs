@@ -5,27 +5,17 @@ namespace SemSim
 {
   public class Utils
   {
-    public static readonly int MaxAsserts = 1000;
+    public static readonly int MaxAsserts = 2000;
 
-    private ExecutionEngine engine;
     private CommandLineOptions printOptions;
-    private CommandLineOptions processOptions;
-    private StringWriter processBuffer;
 
     public Utils()
     {
-      processBuffer = new StringWriter();
-
-      var printBoogieOptions = $"/typeEncoding:m -timeLimit:1 -removeEmptyBlocks:0 /printInstrumented";
+      var printBoogieOptions = $"/typeEncoding:m /timeLimit:10 /removeEmptyBlocks:0 /printInstrumented";
       printOptions = CommandLineOptions.FromArguments(TextWriter.Null, printBoogieOptions.Split(' '));
       printOptions.UseUnsatCoreForContractInfer = true;
       printOptions.ContractInfer = true;
       printOptions.ExplainHoudini = true;
-
-      var processBoogieOptions = $"/timeLimit:1 /errorLimit:{MaxAsserts} /useArrayAxioms";
-      processOptions = CommandLineOptions.FromArguments(TextWriter.Null, processBoogieOptions.Split(' '));
-
-      engine = ExecutionEngine.CreateWithoutSharedCache(processOptions);
     }
 
     public bool ParseProgram(string text, out Program program)
@@ -60,29 +50,33 @@ namespace SemSim
       return true;
     }
 
-    public string PrintProgram(Program program)
+    public void PrintProgram(Program program, string path)
     {
-      var ttw = new TokenTextWriter(processBuffer, printOptions);
-      program.Emit(ttw);
-
-      string res = processBuffer.ToString();
-      processBuffer.GetStringBuilder().Clear();
-      return res;
+      using (StreamWriter writer = new StreamWriter(path))
+      {
+        var ttw = new TokenTextWriter(writer, printOptions);
+        program.Emit(ttw);
+      }
     }
 
-    public string? RunBoogie(Program program)
+    public string RunBoogie(string programFilename)
     {
-      var result = engine.ProcessProgram(processBuffer, program, "from_string");
-      var success = result.Result;
-
-      if (!success)
+      Process p = new Process
       {
-        Debug.WriteLine($"Boogie running errors due to: {processBuffer}");
-      }
+        StartInfo =
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    FileName = "boogie",
+                    Arguments = $"{programFilename} /errorLimit:{MaxAsserts} /useArrayAxioms"
+                }
+      };
+      p.Start();
 
-      string? res = success ? processBuffer.ToString() : null;
-      processBuffer.GetStringBuilder().Clear();
-      return res;
+      // Read the output stream first and then wait.
+      string output = p.StandardOutput.ReadToEnd();
+      p.WaitForExit();
+      return output;
     }
 
     public class VarRenamer : StandardVisitor
@@ -97,12 +91,15 @@ namespace SemSim
 
       public override Declaration VisitDeclaration(Declaration node)
       {
-        if (node is GlobalVariable) {
+        if (node is GlobalVariable)
+        {
           GlobalVariable gv = (GlobalVariable)node;
           return new GlobalVariable(Token.NoToken, new TypedIdent(Token.NoToken, gv.Name + _suffix, gv.TypedIdent.Type));
-        } else if (node is Constant) {
+        }
+        else if (node is Constant)
+        {
           Constant ct = (Constant)node;
-          return new Constant(Token.NoToken, new TypedIdent(Token.NoToken, ct.Name + _suffix, ct.TypedIdent.Type));       
+          return new Constant(Token.NoToken, new TypedIdent(Token.NoToken, ct.Name + _suffix, ct.TypedIdent.Type));
         }
 
         return node;
@@ -130,7 +127,8 @@ namespace SemSim
         //   return node;
         // }
         var result = node.Clone() as Variable;
-        if (result == null) {
+        if (result == null)
+        {
           return node;
         }
         result.Name = result.Name + _suffix;
@@ -183,7 +181,8 @@ namespace SemSim
       {
         node.Label = node.Label + _suffix;
         var gotoCmd = node.TransferCmd as GotoCmd;
-        if (gotoCmd != null) {
+        if (gotoCmd != null)
+        {
           node.TransferCmd = new GotoCmd(Token.NoToken, gotoCmd.labelNames.Select(l => l + _suffix).ToList());
         }
         return base.VisitBlock(node);
@@ -193,20 +192,23 @@ namespace SemSim
     public static string? GetExprType(Expr expr)
     {
       var le = expr as LiteralExpr;
-      if (le != null) {
+      if (le != null)
+      {
         return le.Type.ToString();
       }
       var ie = expr as IdentifierExpr;
-      if (ie != null) {
+      if (ie != null)
+      {
         return ie.Decl.TypedIdent.Type.ToString();
       }
       var ne = expr as NAryExpr;
-      if (ne != null && ne.Fun is MapSelect) {
+      if (ne != null && ne.Fun is MapSelect)
+      {
         return ((ne.Args[0] as IdentifierExpr).Decl.TypedIdent.Type as MapType).Result.ToString();
       }
       return null;
     }
-    
+
     public static AssignCmd CreateAssignCmd(IEnumerable<IdentifierExpr> lhs, IEnumerable<Expr> rhs)
     {
       List<AssignLhs> assignLhss = new List<AssignLhs>();

@@ -56,21 +56,23 @@ namespace SemSim
       var targetImplementation = targetProgram.Implementations.Single();
 
       targetImplementation = _renamer.VisitImplementation(targetImplementation);
-      
+
       int numTotalLocals = joinedImplementation.LocVars.Count + targetImplementation.LocVars.Count;
 
       int numAssert;
       var assumeVars = new List<Tuple<Variable, Expr, Expr>>();
       var blocks = CreateAssertsBlocks(joinedImplementation, targetImplementation, assumeVars, out numAssert);
 
-      if (blocks is null) {
+      if (blocks is null)
+      {
         Debug.WriteLine("Too many search paths");
         return ErrorSim;
       }
-      
+
       Debug.WriteLine($"Asserts num: {numAssert}");
-      
-      if (numAssert == 0) {
+
+      if (numAssert == 0)
+      {
         return 0F;
       }
 
@@ -87,9 +89,11 @@ namespace SemSim
       var targetMemVars = memVars.Where(v => v.ToString().EndsWith(TargetSuffix));
       var queryMemVars = memVars.Except(targetMemVars);
 
-      targetMemVars.ForEach(tv => {
+      targetMemVars.ForEach(tv =>
+      {
         var sameMaps = queryMemVars.Where(qv => tv.ToString().StartsWith(qv.ToString())).ToList();
-        if (sameMaps.Count == 1) {
+        if (sameMaps.Count == 1)
+        {
           joinedImplementation.Blocks.First().Cmds.Insert(0, new AssumeCmd(Token.NoToken, Expr.Eq(
             Expr.Ident(tv), Expr.Ident(sameMaps.Single()))));
         }
@@ -98,23 +102,15 @@ namespace SemSim
       joinedImplementation.Blocks.Last().TransferCmd = new GotoCmd(Token.NoToken, blocks);
       joinedImplementation.Blocks.AddRange(blocks);
 
-      // print new program and reparse to fix resolving problems
-      string joinedText = _utils.PrintProgram(joinedProgram);
-      // Debug.WriteLine(joinedText);
-      if (!_utils.ParseProgram(joinedText, out joinedProgram))
-      {
-        return ErrorSim;
-      }
+      string joinedFile = RandomString(8) + ".bpl";
+      // print new program
+      _utils.PrintProgram(joinedProgram, joinedFile);
+      string joinedText = File.ReadAllText(joinedFile);
 
       // run Boogie and get the output
-      var output = _utils.RunBoogie(joinedProgram);
-      // Debug.WriteLine(output);
-      if (output == null)
-      {
-        return ErrorSim;
-      }
+      var output = _utils.RunBoogie(joinedFile);
 
-      // reparse queryProgram from joinedText to avoid side effects from RunBoogie
+      File.Delete(joinedFile);
       if (!_utils.ParseProgram(joinedText, out joinedProgram))
       {
         return ErrorSim;
@@ -137,7 +133,8 @@ namespace SemSim
         b.Cmds.ForEach(c =>
         {
           var ac = c as AssertCmd;
-          if (ac != null && !failedAssertsLineNumbers.Contains(ac.Line)) {
+          if (ac != null && !failedAssertsLineNumbers.Contains(ac.Line))
+          {
             trueAsserts[b].Add(ac);
           }
         });
@@ -201,7 +198,7 @@ namespace SemSim
 
       // add all of target's functions, constants, globals and typeDecls
       joinedProgram.AddTopLevelDeclarations(targetProgram.TopLevelDeclarations
-        .Where(node => node is GlobalVariable || node is Constant || 
+        .Where(node => node is GlobalVariable || node is Constant ||
                        node is Function || node is TypeSynonymDecl ||
                        node is TypeCtorDecl)
         .Select(decl => _renamer.VisitDeclaration(decl)));
@@ -221,8 +218,10 @@ namespace SemSim
       queryImplementation.LocVars.ForEach(v =>
       {
         var type = Utils.GetExprType(Expr.Ident(v));
-        if (type != null) {
-          targetImplementation.LocVars.ForEach(v2 => {
+        if (type != null)
+        {
+          targetImplementation.LocVars.ForEach(v2 =>
+          {
             if (type.Equals(Utils.GetExprType(Expr.Ident(v2)))) { result.Add(Expr.Eq(Expr.Ident(v), Expr.Ident(v2))); }
           });
         }
@@ -238,7 +237,7 @@ namespace SemSim
       queryImplementation.InParams.ForEach(iq =>
       {
         var type = Utils.GetExprType(Expr.Ident(iq));
-        if (type == null) 
+        if (type == null)
         {
           return;
         }
@@ -259,17 +258,20 @@ namespace SemSim
       assumeVars.ForEach(t =>
       {
         var lhs = t.Item2.ToString();
-        if (!eqVarsGroups.ContainsKey(lhs)) {
+        if (!eqVarsGroups.ContainsKey(lhs))
+        {
           eqVarsGroups[lhs] = new List<Tuple<Variable, Expr, Expr>>();
         }
         eqVarsGroups[lhs].Add(t);
       });
 
       int maxPaths = 1;
-      foreach (var g in eqVarsGroups) {
+      foreach (var g in eqVarsGroups)
+      {
         maxPaths *= g.Value.Count;
         // Too many search paths
-        if (maxPaths > 10000) {
+        if (maxPaths > 10000)
+        {
           numAsserts = -1;
           return null;
         }
@@ -277,7 +279,7 @@ namespace SemSim
 
       assumeVars.ForEach(t => queryImplementation.LocVars.Add(t.Item1));
       var res = CreateAssertsWithAssumes(eqVarsGroups.Values.ToList(), assertsCmds);
-      numAsserts = assertsCmds.Count*res.Count;
+      numAsserts = assertsCmds.Count * res.Count;
 
       return res;
     }
@@ -311,27 +313,30 @@ namespace SemSim
       return result.ToList();
     }
 
-    private void EnumerateAssumes(int group, List<Variable> eqVarsPick, HashSet<int> usedLhs, HashSet<string> usedRhs, 
+    private void EnumerateAssumes(int group, List<Variable> eqVarsPick, HashSet<int> usedLhs, HashSet<string> usedRhs,
       List<List<Tuple<Variable, Expr, Expr>>> eqVarsGroups, List<Cmd> asserts, List<Block> result)
     {
-      if (group == eqVarsGroups.Count) 
+      if (group == eqVarsGroups.Count)
       {
         // enumeration ends, check if it's a maximal match
-        for (int i = 0; i < eqVarsGroups.Count; ++i) 
+        for (int i = 0; i < eqVarsGroups.Count; ++i)
         {
-          if (usedLhs.Contains(i)) {
+          if (usedLhs.Contains(i))
+          {
             continue;
           }
           for (int j = 0; j < eqVarsGroups[i].Count; ++j)
-          { 
-            if(!usedRhs.Contains(eqVarsGroups[i][j].Item3.ToString())) {
+          {
+            if (!usedRhs.Contains(eqVarsGroups[i][j].Item3.ToString()))
+            {
               return;
             }
           }
         }
 
         var b = new Block { Label = SectionLabelPrefix + "_" + _labelCounter++ };
-        foreach (var eqv in eqVarsPick) {
+        foreach (var eqv in eqVarsPick)
+        {
           b.Cmds.Add(new AssumeCmd(Token.NoToken, Expr.Ident(eqv)));
         }
         b.Cmds.AddRange(asserts);
@@ -343,19 +348,27 @@ namespace SemSim
       // try all possible edges for group
       for (int j = 0; j < eqVarsGroups[group].Count; ++j)
       {
-        if (usedRhs.Contains(eqVarsGroups[group][j].Item3.ToString())) {
+        if (usedRhs.Contains(eqVarsGroups[group][j].Item3.ToString()))
+        {
           continue;
         }
 
-        var newEqVarsPick = new List<Variable>(eqVarsPick) { eqVarsGroups[group][j].Item1};
-        var newUsedLhs = new HashSet<int>(usedLhs) {group};
-        var newUsedRhs = new HashSet<string>(usedRhs) {eqVarsGroups[group][j].Item3.ToString()};
+        var newEqVarsPick = new List<Variable>(eqVarsPick) { eqVarsGroups[group][j].Item1 };
+        var newUsedLhs = new HashSet<int>(usedLhs) { group };
+        var newUsedRhs = new HashSet<string>(usedRhs) { eqVarsGroups[group][j].Item3.ToString() };
         EnumerateAssumes(group + 1, newEqVarsPick, newUsedLhs, newUsedRhs, eqVarsGroups, asserts, result);
       }
 
       // try not select edge for group
       EnumerateAssumes(group + 1, eqVarsPick, usedLhs, usedRhs, eqVarsGroups, asserts, result);
     }
-  }
 
+    private string RandomString(int length)
+    {
+      Random random = new Random();
+      const string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+      return new string(Enumerable.Repeat(chars, length)
+          .Select(s => s[random.Next(s.Length)]).ToArray());
+    }
+  }
 }

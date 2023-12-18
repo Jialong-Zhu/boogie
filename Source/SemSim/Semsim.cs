@@ -20,13 +20,10 @@ namespace SemSim
     {
       if (args[0].EndsWith(".bpl"))
       {
-        using (StreamReader qr = new StreamReader(args[0]), tr = new StreamReader(args[1]))
-        {
-          string qtext = qr.ReadToEnd();
-          string ttext = tr.ReadToEnd();
-          float sim = BplMatch.RunMatch(qtext, ttext);
-          Console.Out.WriteLine($"sim: {sim}");
-        }
+        string qtext = File.ReadAllText(args[0]);
+        string ttext = File.ReadAllText(args[1]);
+        float sim = BplMatch.RunMatch(qtext, ttext);
+        Console.Out.WriteLine($"sim: {sim}");
       }
       else if (args[0].EndsWith(".jsonl"))
       {
@@ -163,6 +160,7 @@ namespace SemSim
       int pair_per_batch, int num_process)
     {
       Console.Out.WriteLine("Reading Bpl codes and batches info...");
+
       var funcid2bpls = BuildBplCodeDict(bpl_code_dir, funcs_file, bb_id_map);
       List<List<int>> batches = File.ReadAllLines(func_batches)
                                     .Where(line => !string.IsNullOrWhiteSpace(line))
@@ -187,7 +185,7 @@ namespace SemSim
         return pairs;
       };
 
-      Action<List<List<int>>, string> computeSemsimForGroup = (group, res_file) =>
+      Action<List<List<int>>, string, System.Action> computeSemsimForGroup = (group, res_file, batch_done) =>
       {
         using (StreamWriter writer = new StreamWriter(res_file))
         {
@@ -200,17 +198,37 @@ namespace SemSim
               writer.WriteLine(string.Format("{0} {1} {2}", pair.Item1.Item1, pair.Item2.Item1, sim));
             }
             writer.Flush();
+            batch_done();
           }
         }
       };
 
+      int done = 0;
+      DateTime beg_time = DateTime.Now;
+      System.Action batch_done_callback = () => {
+        Interlocked.Increment(ref done);
+
+        TimeSpan elapsed = DateTime.Now - beg_time;
+        long seconds_per_batch = (long)(elapsed.TotalSeconds / done);
+        TimeSpan eta = TimeSpan.FromSeconds(seconds_per_batch*(batches.Count - done));
+        string log_str = string.Format("\r{0,-10}/{1} batches {2} s/batch {3:hh\\:mm\\:ss} elapsed {4:hh\\:mm\\:ss} ETA",
+          done, batches.Count, seconds_per_batch, elapsed, eta);
+        
+        Console.Out.Write(log_str);
+      };
+
       Console.Out.WriteLine("Computing semsim...");
-      List<Task> tasks = new List<Task>();
+
       int batchesPerGroup = batches.Count / num_process;
+      List<Task> tasks = new List<Task>();
       for (int i = 0; i < num_process; ++i)
       {
-        var group = batches.GetRange(i * batchesPerGroup, Math.Min(batchesPerGroup, batches.Count - i*batchesPerGroup));
-        tasks.Add(Task.Run(() => computeSemsimForGroup(group, Path.Join(temp_dir, "semsims_" + i.ToString() + ".txt"))));
+        var group = batches.GetRange(i * batchesPerGroup, Math.Min(batchesPerGroup, batches.Count - i * batchesPerGroup));
+        tasks.Add(Task.Run(() => computeSemsimForGroup(
+          group, 
+          Path.Join(temp_dir, "semsims_" + i.ToString() + ".txt"),
+          batch_done_callback
+        )));
       }
       Task.WaitAll(tasks.ToArray());
 
