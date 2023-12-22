@@ -74,7 +74,7 @@ namespace SemSim
       p.Start();
 
       // Wait 1min for the process, and read the results.
-      if (p.WaitForExit(3*60*1000))
+      if (p.WaitForExit(1*60*1000))
       {
         string output = p.StandardOutput.ReadToEnd();
         return output;
