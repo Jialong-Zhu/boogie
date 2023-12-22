@@ -59,7 +59,7 @@ namespace SemSim
       }
     }
 
-    public string RunBoogie(string programFilename)
+    public string? RunBoogie(string programFilename)
     {
       Process p = new Process
       {
@@ -73,10 +73,17 @@ namespace SemSim
       };
       p.Start();
 
-      // Read the output stream first and then wait.
-      string output = p.StandardOutput.ReadToEnd();
-      p.WaitForExit();
-      return output;
+      // Wait 1min for the process, and read the results.
+      if (p.WaitForExit(3*60*1000))
+      {
+        string output = p.StandardOutput.ReadToEnd();
+        return output;
+      }
+      else
+      {
+        p.Kill(true);
+        return null;
+      }
     }
 
     public class VarRenamer : StandardVisitor

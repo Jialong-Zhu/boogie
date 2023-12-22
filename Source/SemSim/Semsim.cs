@@ -166,10 +166,20 @@ namespace SemSim
       Console.Out.WriteLine("Reading Bpl codes and groups info...");
 
       var funcid2bpls = BuildBplCodeDict(bpl_code_dir, funcs_file, bb_id_map);
-      List<List<int>> groups = File.ReadAllLines(func_groups)
-                                   .Where(line => !string.IsNullOrWhiteSpace(line))
-                                   .Select(line => line.Split(' ').Select(s => int.Parse(s)).ToList())
-                                   .ToList();
+      List<Tuple<int, List<int>>> groups = 
+        File.ReadAllLines(func_groups)
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Select((line, i) => new Tuple<int, List<int>>(i, line.Split(' ').Select(s => int.Parse(s)).ToList()))
+            .ToList();
+
+      string progress_file = Path.Join(temp_dir, "group_done.txt");
+      if (File.Exists(progress_file))
+      {
+        HashSet<int> done_indices = File.ReadAllLines(progress_file)
+                                        .Select(line => int.Parse(line.Trim()))
+                                        .ToHashSet();
+        groups = groups.Where(tuple => !done_indices.Contains(tuple.Item1)).ToList();
+      }
 
       Func<List<int>, List<Tuple<Tuple<int, string>, Tuple<int, string>>>> samplePairsFromGroup = group =>
       {
@@ -189,36 +199,45 @@ namespace SemSim
         return pairs;
       };
 
-      Action<List<List<int>>, string, System.Action> computeSemsimForSmallGroups = (sgroups, res_file, group_done) =>
+      Action<List<Tuple<int, List<int>>>, string, Action<int>> computeSemsimForSmallGroups = (sgroups, res_file, group_done) =>
       {
-        using (StreamWriter writer = new StreamWriter(res_file))
+        foreach (var group in sgroups)
         {
-          foreach (var group in sgroups)
+          string res_str = "";
+          var pairs = samplePairsFromGroup(group.Item2);
+          foreach (var pair in pairs)
           {
-            var pairs = samplePairsFromGroup(group);
-            foreach (var pair in pairs)
-            {
-              float sim = BplMatch.RunMatch(pair.Item1.Item2, pair.Item2.Item2);
-              writer.WriteLine(string.Format("{0} {1} {2}", pair.Item1.Item1, pair.Item2.Item1, sim));
-            }
-            writer.Flush();
-            group_done();
+            float sim = BplMatch.RunMatch(pair.Item1.Item2, pair.Item2.Item2);
+            res_str += string.Format("{0} {1} {2}\n", pair.Item1.Item1, pair.Item2.Item1, sim);
           }
+
+          using (StreamWriter writer = new StreamWriter(res_file, true))
+          {
+            writer.Write(res_str);
+          }
+          group_done(group.Item1);
         }
       };
 
+      Object locker = new Object();
       int done = 0;
       DateTime beg_time = DateTime.Now;
-      System.Action group_done_callback = () => {
-        Interlocked.Increment(ref done);
-
-        TimeSpan elapsed = DateTime.Now - beg_time;
-        long avg_time = (long)(elapsed.TotalSeconds / done);
-        TimeSpan eta = TimeSpan.FromSeconds(avg_time*(groups.Count - done));
-        string log_str = string.Format("\r{0,10}/{1} groups {2} s/group {3:hh\\:mm\\:ss} elapsed {4:dd\\:hh\\:mm\\:ss} ETA",
-          done, groups.Count, avg_time, elapsed, eta);
-        
-        Console.Out.Write(log_str);
+      Action<int> group_done_callback = idx => {
+        lock(locker)
+        {
+          using (StreamWriter writer = new StreamWriter(progress_file, true))
+          {
+            writer.WriteLine(idx);
+          }
+          done += 1;
+          TimeSpan elapsed = DateTime.Now - beg_time;
+          long avg_time = (long)(elapsed.TotalSeconds / done);
+          TimeSpan eta = TimeSpan.FromSeconds(avg_time*(groups.Count - done));
+          string log_str = string.Format("\r{0,10}/{1} groups {2} s/group {3:dd\\:hh\\:mm\\:ss} elapsed {4:dd\\:hh\\:mm\\:ss} ETA",
+            done, groups.Count, avg_time, elapsed, eta);
+          
+          Console.Out.Write(log_str);
+        }
       };
 
       Console.Out.WriteLine("Computing semsim...");

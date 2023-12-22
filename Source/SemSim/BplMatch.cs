@@ -111,7 +111,7 @@ namespace SemSim
       var output = _utils.RunBoogie(joinedFile);
 
       File.Delete(joinedFile);
-      if (!_utils.ParseProgram(joinedText, out joinedProgram))
+      if (output == null || !_utils.ParseProgram(joinedText, out joinedProgram))
       {
         return ErrorSim;
       }
